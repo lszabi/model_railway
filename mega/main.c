@@ -4,13 +4,13 @@
 
 /*
 1-wire communication
-Slave code
+Master code
 
 Receive Signal -> send signal + 8bit id
 
 2 wire power communication (TWPC)
 Master code
-v0.5
+v0.6
 
 Generate power signal + manage slave devices
 
@@ -18,15 +18,23 @@ Generate power signal + manage slave devices
 */
 
 #define LED_P 7
-#define ONEWIRE_DATA_P 0
+
+#define ONEWIRE_P 0
+#define ONEWIRE_DDR DDRD
+#define ONEWIRE_PORT PORTD
+
 #define TWPC_POWER_P 6
+#define TWPC_POWER_DDR DDRB
+#define TWPC_POWER_PORT PORTB
+
 #define TWPC_DATA_P 4
+#define TWPC_DATA_DDR DDRE
+#define TWPC_DATA_PORT PORTE
 
 #define TWPC_DELAY() _delay_us(200);
 
-volatile int onewire_signal_caught = 0;
-volatile int _twpc_signal_received = 0;
-int twpc_signal_received = 0;
+volatile static int onewire_signal_caught = 0;
+volatile static int twpc_signal_received = 0;
 
 void led_on(void) {
 	PORTB |= _BV(LED_P);
@@ -51,25 +59,26 @@ int onewire_signal_received(void) {
 }
 
 void onewire_wait_signal(void) {
-	DDRD &= ~_BV(ONEWIRE_DATA_P);
-	PORTD &= ~_BV(ONEWIRE_DATA_P);
+	ONEWIRE_DDR &= ~_BV(ONEWIRE_P);
+	ONEWIRE_PORT &= ~_BV(ONEWIRE_P);
 }
 
 void onewire_send_signal(void) {
-	DDRD |= _BV(ONEWIRE_DATA_P);
-	PORTD |= _BV(ONEWIRE_DATA_P);
+	ONEWIRE_DDR |= _BV(ONEWIRE_P);
+	ONEWIRE_PORT |= _BV(ONEWIRE_P);
 	_delay_ms(1);
-	PORTD &= ~_BV(ONEWIRE_DATA_P);
+	ONEWIRE_PORT &= ~_BV(ONEWIRE_P);
 }
 
-void onewire_send_data(uint8_t d) {
+uint8_t onewire_receive_data(void) {
+	uint8_t d = 0;
 	for ( int i = 0; i < 8; i++ ) {
-		if ( d & _BV(i) ) {
-			onewire_send_signal();
-		} else {
-			_delay_ms(1);
+		_delay_ms(1);
+		if ( onewire_signal_received() ) {
+			d |= _BV(i);
 		}
 	}
+	return d;
 }
 
 ISR(INT0_vect) {
@@ -77,64 +86,84 @@ ISR(INT0_vect) {
 }
 
 ISR(INT4_vect) {
-	_twpc_signal_received = 1;
+	twpc_signal_received = 1;
 }
 
-void twpc_cycle(int send_data) {
+// Master cycle
+int twpc_cycle(int send_data) {
 	// power cycle
-	PORTB |= _BV(TWPC_POWER_P);
+	TWPC_POWER_PORT |= _BV(TWPC_POWER_P);
 	TWPC_DELAY();
-	PORTB &= ~_BV(TWPC_POWER_P);
-	_twpc_signal_received = 0;
+	twpc_signal_received = 0;
+	TWPC_POWER_PORT &= ~_BV(TWPC_POWER_P);
+	_delay_us(10);
 	// data cycle
 	if ( send_data ) {
-		PORTB |= _BV(TWPC_POWER_P);
+		TWPC_POWER_PORT |= _BV(TWPC_POWER_P);
 	}
 	TWPC_DELAY();
-	PORTB &= ~_BV(TWPC_POWER_P);
-	if ( !send_data && _twpc_signal_received ) {
-		twpc_signal_received = 1;
-	}
-}
-
-int twpc_data_received() {
-	if ( twpc_signal_received ) {
-		twpc_signal_received = 0;
+	TWPC_POWER_PORT &= ~_BV(TWPC_POWER_P);
+	if ( !send_data && twpc_signal_received ) {
 		return 1;
 	}
 	return 0;
 }
 
+void twpc_init(void) {
+#ifdef TWPC_POWER_DDR
+	TWPC_POWER_DDR |= _BV(TWPC_POWER_P);
+	TWPC_POWER_PORT &= ~_BV(TWPC_POWER_P);
+#endif
+	TWPC_DATA_DDR &= ~_BV(TWPC_DATA_P);
+	TWPC_DATA_PORT &= ~_BV(TWPC_DATA_P);
+}
+
+void twpc_send_data(uint8_t d) {
+	twpc_cycle(1);
+	for ( int i = 0; i < 8; i++ ) {
+		twpc_cycle(d & _BV(i));
+	}
+}
+
+uint8_t twpc_receive_data(void) {
+	uint8_t d = 0;
+	for ( int i = 0; i < 8; i++ ) {
+		if ( twpc_cycle(0) ) {
+			d |= _BV(i);
+		}
+	}
+	return d;
+}
+
 int main(void) {
 	cli();
-	DDRB |= _BV(LED_P) | _BV(TWPC_POWER_P);
-	PORTB &= ~_BV(LED_P) & ~_BV(TWPC_POWER_P);
-	DDRE &= ~_BV(TWPC_DATA_P);
-	PORTE &= ~_BV(TWPC_DATA_P);
+	DDRB |= _BV(LED_P);
+	PORTB &= ~_BV(LED_P);
+	twpc_init();
 	EICRA = _BV(ISC01);
 	EICRB = _BV(ISC40) | _BV(ISC41);
 	EIMSK = _BV(INT0) | _BV(INT4);
 	sei();
 	uint32_t i = 0;
 	while ( 1 ) {
-		if ( ++i > 5000 ) {
+		if ( ++i > 3000 ) {
 			i = 0;
-			twpc_cycle(1);
-			twpc_cycle(0);
-			if ( twpc_data_received() ) {
+			twpc_send_data(0x32);
+			if ( twpc_cycle(0) && twpc_receive_data() == 0x15 ) {
 				blink();
 			}
 		}
 		twpc_cycle(0);
 		/*
+		onewire_send_signal();
 		onewire_wait_signal();
+		_delay_ms(1);
 		if ( onewire_signal_received() ) {
-			// response
-			onewire_send_signal();
-			onewire_send_data(0x32);
-			// clear signal flag
-			onewire_signal_received();
-			blink();
+			uint8_t id = onewire_receive_data();
+			if ( id == 0x32 ) {
+				blink();
+			}
+			_delay_ms(1000);
 		}
 		*/
 	}
