@@ -1,0 +1,16 @@
+
+	*** Two Wire Powered Communication protocol ***
+
+Byte format: 1 start bit + 8 data bits
+
+200 us power cycle + 200 us data cycle (1 bit each)
+
+Connection:
+	master:	new id
+	slave:	OK
+
+Data transmit:
+	master:	id + command
+	slave:	response + [END | DATA]
+
+END: next id
