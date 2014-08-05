@@ -10,7 +10,8 @@ Receive Signal -> send signal + 8bit id
 
 2 wire power communication (TWPC)
 Master code
-v0.6
+
+v0.7
 
 Generate power signal + manage slave devices
 
@@ -35,6 +36,23 @@ Generate power signal + manage slave devices
 
 volatile static int onewire_signal_caught = 0;
 volatile static int twpc_signal_received = 0;
+
+// Some funny debug stuff
+void blink_d(uint8_t d) {
+	for ( int i = 0; i < 8; i++ ) {
+		if ( d & ( 1 << i ) ) {
+			PORTB |= _BV(0);
+			_delay_ms(20);
+			PORTB &= ~_BV(0);
+			_delay_ms(400);
+		} else {
+			PORTB |= _BV(1);
+			_delay_ms(20);
+			PORTB &= ~_BV(1);
+			_delay_ms(400);
+		}
+	}
+}
 
 void led_on(void) {
 	PORTB |= _BV(LED_P);
@@ -146,6 +164,7 @@ int main(void) {
 	sei();
 	uint32_t i = 0;
 	while ( 1 ) {
+		/* * /
 		if ( ++i > 3000 ) {
 			i = 0;
 			twpc_send_data(0x32);
@@ -154,10 +173,11 @@ int main(void) {
 			}
 		}
 		twpc_cycle(0);
-		/*
+		// */
+		/* */
 		onewire_send_signal();
 		onewire_wait_signal();
-		_delay_ms(1);
+		_delay_us(1050); // extra 50us delay for INT handling and etc
 		if ( onewire_signal_received() ) {
 			uint8_t id = onewire_receive_data();
 			if ( id == 0x32 ) {
@@ -165,7 +185,7 @@ int main(void) {
 			}
 			_delay_ms(1000);
 		}
-		*/
+		// */
 	}
 	return 1;
 }

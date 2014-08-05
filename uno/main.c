@@ -10,7 +10,8 @@ Send signal -> Receive Signal + 8bit id
 
 2 wire power communication (TWPC)
 Slave code
-v0.6
+
+v0.7
 */
 
 #define LED_P 5
@@ -155,13 +156,15 @@ int main(void) {
 	EIMSK = _BV(INT0) | _BV(INT1);
 	sei();
 	while ( 1 ) {
+		/* * /
 		if ( twpc_cycle(0) ) {
 			if ( twpc_receive_data() == 0x32 ) {
 				twpc_send_data(0x15);
 				blink();
 			}
 		}
-		/*
+		// */
+		/* */
 		onewire_wait_signal();
 		if ( onewire_signal_received() ) {
 			// response
@@ -171,7 +174,7 @@ int main(void) {
 			onewire_signal_received();
 			blink();
 		}
-		*/
+		// */
 	}
 	return 1;
 }
