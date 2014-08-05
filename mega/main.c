@@ -177,7 +177,7 @@ int main(void) {
 		/* */
 		onewire_send_signal();
 		onewire_wait_signal();
-		_delay_us(1050); // extra 50us delay for INT handling and etc
+		_delay_us(1100); // extra 100us delay for INT handling and etc
 		if ( onewire_signal_received() ) {
 			uint8_t id = onewire_receive_data();
 			if ( id == 0x32 ) {
