@@ -37,9 +37,9 @@ if ( isset($_GET['a']) && isset($_GET['id']) ) { // take action
 	$id = $_GET['id'];
 	$a = $_GET['a'];
 	if ( is_numeric($id) ) {
-		$id = strtoupper(dechex($id));
+		$id = strtoupper(dechex($id)); // avr int-hex conversion and receive function operates only with upper-case, fixed length numbers
 		while ( strlen($id) < 2 ) {
-			$id = '0' . $id; // avr int-hex conversion function operates only with upper-case
+			$id = '0' . $id;
 		}
 		if ( $a == 'on' ) {
 			$ret = shell_exec('./uart ' . $id . '1');
