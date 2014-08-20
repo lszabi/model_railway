@@ -12,24 +12,22 @@ Send signal -> Receive Signal + 8bit id
 2 wire power communication (TWPC)
 Slave code
 
-The same as the ATtiny84A code
-(except for pin definition macros below)
-see ../tiny84a/main.c
+This code will run the brains of the train engines.
 */
 
-#define LED_P 5
-#define LED_PORT PORTB
-#define LED_DDR DDRB
+#define LED_P 3
+#define LED_PORT PORTA
+#define LED_DDR DDRA
 
 #define ONEWIRE_P 2
-#define ONEWIRE_DDR DDRD
-#define ONEWIRE_PORT PORTD
-#define ONEWIRE_PIN PIND
+#define ONEWIRE_DDR DDRB
+#define ONEWIRE_PORT PORTB
+#define ONEWIRE_PIN PINB
 
-#define TWPC_DATA_P 3
-#define TWPC_DATA_DDR DDRD
-#define TWPC_DATA_PORT PORTD
-#define TWPC_DATA_PIN PIND
+#define TWPC_DATA_P 7
+#define TWPC_DATA_DDR DDRA
+#define TWPC_DATA_PORT PORTA
+#define TWPC_DATA_PIN PINA
 
 #define TWPC_CMD_NOP 0x01
 #define TWPC_CMD_END 0x02
@@ -77,9 +75,9 @@ void blink(void) {
 }
 
 void dbg(void) {
-	PORTB |= _BV(0);
+	led_on();
 	_delay_us(2);
-	PORTB &= ~_BV(0);
+	led_off();
 }
 
 // ** ONEWIRE ** //
@@ -109,7 +107,6 @@ void onewire_send_data(uint8_t d) {
 void onewire_cycle(void) {
 	if ( ONEWIRE_PIN & _BV(ONEWIRE_P) ) {
 		while ( ONEWIRE_PIN & _BV(ONEWIRE_P) );
-		//dbg();
 		// response
 		_delay_us(5);
 		onewire_send_signal();
@@ -135,7 +132,7 @@ int twpc_cycle(int send_data) {
 	// power cycle
 	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
 	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) {
-		onewire_cycle();
+		onewire_cycle(); // listen to onewire while we are in idle cycle
 	}
 	_delay_us(20);
 	// data cycle
@@ -181,23 +178,22 @@ int main(void) {
 	_delay_ms(2000); // wait for proper connection and power
 	blink();
 	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
-	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) );
+	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ); // wait for the end of a full idle cycle
 	while ( 1 ) {
-		/* */
-		if ( twpc_state == 0 ) {
+		if ( twpc_state == 0 ) { // connecting to master ( could've been before the while(1), but it isn't )
 			twpc_cycle(1);
 			twpc_my_id = twpc_receive_data();
 			twpc_state = 1;
 			twpc_response = TWPC_CMD_OK;
-		} else if ( twpc_state == 1 ) {
+		} else if ( twpc_state == 1 ) { // send response to the master
 			twpc_send_data(twpc_response);
 			twpc_send_data(TWPC_CMD_END);
 			twpc_state = 2;
-		} else if ( twpc_state == 2 ) {
+		} else if ( twpc_state == 2 ) { // receive data from our great lord and master
 			uint8_t id = twpc_receive_data();
 			uint8_t cmd = twpc_receive_data();
 			if ( id == twpc_my_id || id == 255 ) {
-				if ( cmd == TWPC_CMD_NOP ) {
+				if ( cmd == TWPC_CMD_NOP ) { // obey the mighty mega2560
 					twpc_response = TWPC_CMD_OK;
 				} else if ( cmd == TWPC_CMD_LIGHT_ON ) {
 					led_on();
@@ -212,7 +208,7 @@ int main(void) {
 			if ( id == twpc_my_id ) { // don't send response to broadcast packet
 				twpc_state = 1;
 			}
-		} else if ( twpc_state == 3 ) {
+		} else if ( twpc_state == 3 ) { // wait until the new guy connects
 			if ( twpc_cycle(0) ) {
 				twpc_receive_data();
 				twpc_receive_data();
@@ -220,7 +216,6 @@ int main(void) {
 				twpc_state = 2;
 			}
 		}
-		/* */
 	}
-	return 1;
+	return 1; // just why? i can't even...
 }
