@@ -19,6 +19,8 @@ This is an "all-in-one" code, kinda messy...
 */
 
 #define LED_P 7
+#define LED_PORT PORTB
+#define LED_DDR DDRB
 
 #define ONEWIRE_DDR DDRD
 #define ONEWIRE_PORT PORTD
@@ -59,11 +61,11 @@ void dbg(void) { // for logic analyzers
 }
 
 void led_on(void) {
-	PORTB |= _BV(LED_P);
+	LED_PORT |= _BV(LED_P);
 }
 
 void led_off(void) {
-	PORTB &= ~_BV(LED_P);
+	LED_PORT &= ~_BV(LED_P);
 }
 
 void blink(void) {
@@ -375,9 +377,9 @@ int inttohex(char *str, uint32_t n) {
 static uint32_t con_log = 0;
 
 int main(void) {
-	DDRB |= _BV(LED_P);
+	LED_DDR |= _BV(LED_P);
 	led_off();
-	PORTE &= ~_BV(0);
+	PORTE &= ~_BV(0); // UART RX pin
 	DDRE &= ~_BV(0);
 	twpc_init();
 	serial_init(57600);
