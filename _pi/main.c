@@ -5,17 +5,8 @@
 #include <sys/ioctl.h>
 #include <string.h>
 
-/*
-RaspberryPi UART software for model railway
-connects to Arduino MEGA
-created by LSzabi
-
-thanks to wiringPi library for their code
-*/
-
 int uart_stream = -1;
 
-// setting up uart
 void uart_setup() {
 	uart_stream = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
 	if ( uart_stream == -1 ) {
@@ -43,15 +34,13 @@ void uart_setup() {
 	tcflush(uart_stream, TCIFLUSH);
 }
 
-// transmit one char
 void uart_putchar(char c) {
-	int count = write(uart_stream, &c, 1); // using write() and read() with strings of more chars won't work somehow
+	int count = write(uart_stream, &c, 1);
 	if ( count != 1 ) {
 		printf("UART TX error\n");
 	}
 }
 
-// receive one char
 int uart_getchar() {
 	char c;
 	if ( read(uart_stream, &c, 1) != 1 ) {
@@ -60,7 +49,6 @@ int uart_getchar() {
 	return ( (int)c ) & 0xFF;
 }
 
-// receive string
 int uart_rx(char *s, int n) {
 	int i;
 	for ( i = 0; i < n; i++ ) {
@@ -74,7 +62,6 @@ int uart_rx(char *s, int n) {
 	return i;
 }
 
-// transmit string
 void uart_tx(char *s, int n) {
 	int i;
 	for ( i = 0; i < n; i++ ) {
@@ -82,7 +69,6 @@ void uart_tx(char *s, int n) {
 	}
 }
 
-// end connection
 void uart_close() {
 	close(uart_stream);
 }
@@ -93,7 +79,7 @@ int main(int argc, char **argv) {
 		uart_tx(argv[1], strlen(argv[1]));
 		char s[128];
 		uart_rx(s, 128);
-		printf("%s", s); // this will be displayed by the PHP script
+		printf("%s", s);
 		uart_close();
 	} else {
 		printf("Nothing to send");
