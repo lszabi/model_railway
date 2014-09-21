@@ -75,6 +75,7 @@ void blink(void) {
 }
 
 // ** UART ** //
+#if 1
 
 /*
 Interrupt-driven uart to communicate with raspberry pi
@@ -196,8 +197,10 @@ char serial_peek(void) {
 	}
 	return 0;
 }
+#endif
 
 // ** ONEWIRE ** //
+#if 1
 
 void onewire_wait_signal(int p) {
 	ONEWIRE_DDR &= ~_BV(onewire_pins[p]);
@@ -233,6 +236,7 @@ int onewire_cycle(int p) {
 	}
 	return -1;
 }
+#endif
 
 // ** TWPC ** //
 
@@ -246,12 +250,23 @@ int onewire_cycle(int p) {
 #define TWPC_CMD_LIGHT_ON 0x08
 #define TWPC_CMD_LIGHT_OFF 0x09
 #define TWPC_CMD_STOP 0x0A
+#define TWPC_CMD_MOTORA 0x0B
+#define TWPC_CMD_MOTORB 0x0C
+
+#define TWPC_DEV_STATION 0xFE
+#define TWPC_DEV_TRAIN 0xFF
+
+typedef struct {
+	uint8_t type ; // 0: disconnected, 1: train, 2: station
+	char uid[3];
+	uint8_t send_data;
+} device_t;
 
 static int twpc_state = 0, twpc_connect_device = 1;
-static uint8_t twpc_id_table[254] = { 0, }; // ids from 1 to 254
+static device_t twpc_device_table[254] = { { 0, { 0, }, 0 }, }; // devices from 1 to 254
 static uint8_t twpc_current_id = 1; // the next id in the queue
 static uint8_t twpc_wait_data = 0;
-static uint8_t twpc_data[255] = { 0, }; // data to send
+static uint8_t twpc_broadcast_data = 0;
 
 // Master cycle
 int twpc_cycle(int send_data) {
@@ -308,12 +323,12 @@ void twpc_next_id(void) {
 		if ( twpc_current_id > 254 ) {
 			twpc_current_id = 1;
 		}
-	} while ( !twpc_id_table[twpc_current_id - 1] );
+	} while ( !( twpc_device_table[twpc_current_id - 1].type ) );
 }
 
 int twpc_dev_rem(void) {
 	for ( int i = 0; i < 253; i++ ) {
-		if ( twpc_id_table[i] ) {
+		if ( twpc_device_table[i].type ) {
 			return 1;
 		}
 	}
@@ -393,21 +408,26 @@ int main(void) {
 				twpc_send_data(0xFF);
 				twpc_send_data(0xFF);
 				twpc_send_data(0xFF);
+				twpc_send_data(0xFF);
+				twpc_send_data(0xFF);
+				twpc_send_data(0xFF);
 				twpc_state = 2;
 			} else if ( twpc_cycle(0) ) {
 				led_off();
 				int new_id;
 				for ( new_id = 0; new_id < 254; new_id++ ) {
-					if ( twpc_id_table[new_id] == 0 ) {
-						twpc_id_table[new_id] = 1;
+					if ( twpc_device_table[new_id].type == 0 ) {
 						new_id++;
 						break;
 					}
 				}
 				twpc_send_data(new_id); // send next available id to new device
 				twpc_current_id = new_id;
-				twpc_data[twpc_current_id - 1] = 0;
-				twpc_wait_data = 0;
+				twpc_device_table[twpc_current_id - 1].send_data = 0;
+				twpc_device_table[twpc_current_id - 1].uid[0] = twpc_receive_data();
+				twpc_device_table[twpc_current_id - 1].uid[1] = twpc_receive_data();
+				twpc_device_table[twpc_current_id - 1].uid[2] = twpc_receive_data();
+				twpc_wait_data = 2;
 				twpc_state = 1;
 				twpc_connect_device = 0;
 			}
@@ -415,22 +435,30 @@ int main(void) {
 			uint8_t data = twpc_receive_data();
 			uint8_t end = twpc_receive_data();
 			int dc = 0;
-			if ( twpc_wait_data == 0 ) { 
+			if ( twpc_wait_data == 0 ) { // nothing
 				if ( data != TWPC_CMD_OK ) {
 					// disonnect
 					dc = 1;
 					// save the received packets for the sake of debugging
 					con_log = ( (uint32_t)data << 16 ) | ( (uint32_t)end << 8 ) | twpc_current_id;
 				}
-			} else if ( twpc_wait_data == 1 ) {
+			} else if ( twpc_wait_data == 1 ) { // anything
 				if ( data == TWPC_CMD_DISCONNECT ) {
 					dc = 1;
 				} else if ( data == TWPC_CMD_NOP ) {
 					// nothing happens here
 				}
+			} else if ( twpc_wait_data == 2 ) { // device type
+				if ( data == TWPC_DEV_TRAIN ) {
+					twpc_device_table[twpc_current_id - 1].type = 1;
+				} else if ( data == TWPC_DEV_STATION ) {
+					twpc_device_table[twpc_current_id - 1].type = 2;
+				} else {
+					dc = 1;
+				}
 			}
 			if ( dc ) {
-				twpc_id_table[twpc_current_id - 1] = 0;
+				twpc_device_table[twpc_current_id - 1].type = 0;
 				if ( twpc_dev_rem() ) {
 					twpc_next_id();
 					twpc_state = 2;
@@ -445,34 +473,34 @@ int main(void) {
 				}
 			}
 		} else if ( twpc_state == 2 ) { // sending data
-			if ( twpc_data[254] ) { // broadcast data
+			if ( twpc_broadcast_data ) { // broadcast data
 				twpc_send_data(255);
-				twpc_send_data(twpc_data[254]);
-				twpc_data[254] = 0;
+				twpc_send_data(twpc_broadcast_data);
+				twpc_broadcast_data = 0;
 			} else if ( twpc_connect_device ) { // connecting new device, everybody chill out
 				twpc_send_data(255);
 				twpc_send_data(TWPC_CMD_NEW_DEVICE);
 				twpc_state = 0;
 			} else {
 				twpc_send_data(twpc_current_id);
-				if ( twpc_data[twpc_current_id - 1] ) { // tell 'em what we want
-					twpc_send_data(twpc_data[twpc_current_id - 1]);
-					twpc_data[twpc_current_id - 1] = 0;
+				if ( twpc_device_table[twpc_current_id - 1].send_data ) { // tell 'em what we want
+					twpc_send_data(twpc_device_table[twpc_current_id - 1].send_data);
+					twpc_device_table[twpc_current_id - 1].send_data = 0;
 				} else {
 					twpc_send_data(TWPC_CMD_NOP);
+					twpc_wait_data = 0;
 				}
-				twpc_wait_data = 0;
 				twpc_state = 1;
 			}
 		}
 		cli();
 		int id = onewire_cycle(0);
 		if ( id != -1 ) {
-			twpc_data[id - 1] = TWPC_CMD_LIGHT_ON; // turn on the lights on the contacted device
+			twpc_device_table[id - 1].send_data = TWPC_CMD_LIGHT_ON; // turn on the lights on the contacted device (temporary solution)
 		}
 		id = onewire_cycle(1);
 		if ( id != -1 ) {
-			twpc_data[id - 1] = TWPC_CMD_LIGHT_OFF;
+			twpc_device_table[id - 1].send_data = TWPC_CMD_LIGHT_OFF;
 		}
 		sei();
 		if ( serial_available() >= 4 ) {
@@ -484,10 +512,18 @@ int main(void) {
 			int id = hextoint(id_s);
 			char c = serial_get();
 			if ( c == '1' ) { // lights on
-				twpc_data[id - 1] = TWPC_CMD_LIGHT_ON;
+				if ( id == 255 ) {
+					twpc_broadcast_data = TWPC_CMD_LIGHT_ON;
+				} else {
+					twpc_device_table[id - 1].send_data = TWPC_CMD_LIGHT_ON;
+				}
 				serial_write("on");
 			} else if ( c == '0' ) { // lights off
-				twpc_data[id - 1] = TWPC_CMD_LIGHT_OFF;
+				if ( id == 255 ) {
+					twpc_broadcast_data = TWPC_CMD_LIGHT_OFF;
+				} else {
+					twpc_device_table[id - 1].send_data = TWPC_CMD_LIGHT_OFF;
+				}
 				serial_write("off");
 			} else if ( c == 'g' ) { // get list of connected devices
 				char str[65] = { 0, };
@@ -495,7 +531,9 @@ int main(void) {
 				for ( int i = 0; i < 254; i += 32 ) {
 					uint32_t n = 0;
 					for ( int f = 0; f < 32 && i + f < 254; f++ ) {
-						n |= twpc_id_table[i + f] << f;
+						if ( twpc_device_table[i + f].type ) {
+							n |= _BV(f);
+						}
 					}
 					inttohex(str + s, n);
 					s += 8;
@@ -513,8 +551,33 @@ int main(void) {
 				char str[9];
 				inttohex(str, con_log);
 				serial_write(str);
-			}	
-			serial_flush_rx(); // get rid of remaining data for it could cause 'misunderstanding'
+			} else if ( c == 'i' ) {
+				serial_put(twpc_device_table[id - 1].uid[0]);
+				serial_put(twpc_device_table[id - 1].uid[1]);
+				serial_put(twpc_device_table[id - 1].uid[2]);
+			} else if ( c == 's' ) {
+				if ( id == 255 ) {
+					twpc_broadcast_data = TWPC_CMD_STOP;
+				} else {
+					twpc_device_table[id - 1].send_data = TWPC_CMD_STOP;
+				}
+				serial_write("stopped");
+			} else if ( c == 'a' ) {
+				if ( id == 255 ) {
+					twpc_broadcast_data = TWPC_CMD_MOTORA;
+				} else {
+					twpc_device_table[id - 1].send_data = TWPC_CMD_MOTORA;
+				}
+				serial_write("dir a");
+			} else if ( c == 'b' ) {
+				if ( id == 255 ) {
+					twpc_broadcast_data = TWPC_CMD_MOTORB;
+				} else {
+					twpc_device_table[id - 1].send_data = TWPC_CMD_MOTORB;
+				}
+				serial_write("dir b");
+			}
+			serial_flush_rx(); // get rid of remaining data, it could cause 'misunderstanding'
 		}
 		_delay_ms(1);
 	}

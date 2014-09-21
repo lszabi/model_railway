@@ -39,6 +39,13 @@ This code will run the brains of the train engines.
 #define TWPC_CMD_LIGHT_ON 0x08
 #define TWPC_CMD_LIGHT_OFF 0x09
 #define TWPC_CMD_STOP 0x0A
+#define TWPC_CMD_MOTORA 0x0B
+#define TWPC_CMD_MOTORB 0x0C
+
+#define TWPC_DEV_STATION 0xFE
+#define TWPC_DEV_TRAIN 0xFF
+
+static const char twpc_uid[] = "ASD";
 
 static int twpc_state = 0;
 static uint8_t twpc_my_id = 0; // my own id
@@ -78,6 +85,112 @@ void dbg(void) {
 	led_on();
 	_delay_us(2);
 	led_off();
+}
+
+// ** MOTOR ** //
+
+/*
+Mode	PCH_A	PCH_B	PWM_A	PWM_B	func
+off		1		1		1		1		motor_off()
+pwm_a	0		1		0		pwm		motor_a(pwm)
+pwm_b	1		0		pwm		0		motor_b(pwm)
+*/
+
+void motor_pch_a(int s) {
+	if ( s ) {
+		PORTB |= _BV(0);
+	} else {
+		PORTB &= ~_BV(0);
+	}
+}
+
+void motor_pch_b(int s) {
+	if ( s ) {
+		PORTA |= _BV(0);
+	} else {
+		PORTA &= ~_BV(0);
+	}
+}
+
+void motor_pwm_a_dig(int s) {
+	if ( s ) {
+		PORTA |= _BV(6);
+	} else {
+		PORTA &= ~_BV(6);
+	}
+}
+
+void motor_pwm_b_dig(int s) {
+	if ( s ) {
+		PORTA |= _BV(5);
+	} else {
+		PORTA &= ~_BV(5);
+	}
+}
+
+void motor_pwm_a(uint8_t s) {
+	PORTA &= ~_BV(6);
+	TCCR1A = _BV(COM1A1) | _BV(WGM10);
+	TCCR1B = _BV(CS12) | _BV(WGM12);
+	OCR1AH = 0;
+	OCR1AL = s;
+}
+
+void motor_pwm_b(uint8_t s) {
+	PORTA &= ~_BV(5);
+	TCCR1A = _BV(COM1B1) | _BV(WGM10);
+	TCCR1B = _BV(CS12) | _BV(WGM12);
+	OCR1BH = 0;
+	OCR1BL = s;
+}
+
+void motor_detach_pwm(void) {
+	TCCR1A = 0;
+	TCCR1B = 0;
+}
+
+// Use only the funtions below to operate motor
+
+void motor_off(void) {
+	motor_detach_pwm();
+	motor_pch_a(1);
+	motor_pch_b(1);
+	motor_pwm_a_dig(1);
+	motor_pwm_b_dig(1);
+}
+
+void motor_init(void) {
+	DDRB |= _BV(0);
+	DDRA |= _BV(0) | _BV(5) | _BV(6);
+	motor_off();
+}
+
+void motor_a(uint8_t s) {
+	motor_pch_a(0);
+	motor_pch_b(1);
+	motor_pwm_a_dig(0);
+	if ( s == 0xFF ) {
+		motor_detach_pwm();
+		motor_pwm_b_dig(1);
+	} else if ( s == 0 ) {
+		motor_off();
+	} else {
+		motor_pwm_b(s);
+	}
+}
+
+void motor_b(uint8_t s) {
+	motor_pch_a(1);
+	motor_pch_b(0);
+	motor_pwm_b_dig(0);
+	if ( s == 0xFF ) {
+		motor_detach_pwm();
+		motor_pwm_a_dig(1);
+	} else if ( s == 0 ) {
+		motor_off();
+	} else {
+		motor_pwm_a(s);
+	}
 }
 
 // ** ONEWIRE ** //
@@ -174,9 +287,32 @@ int main(void) {
 	LED_DDR |= _BV(LED_P);
 	led_off();
 	twpc_init();
+	motor_init();
 	onewire_wait_signal();
 	_delay_ms(2000); // wait for proper connection and power
 	blink();
+	/*
+	int pwm = 1;
+	int a = 1;
+	while ( 1 ) {
+		motor_a(48);
+		_delay_ms(1000);
+		motor_off();
+		_delay_ms(1000);
+		motor_b(48);
+		_delay_ms(1000);
+		motor_off();
+		_delay_ms(1000);
+		/*
+		motor_a(pwm);
+		pwm += a;
+		if ( pwm <= 1 || pwm >= 0xFE ) {
+			a *= -1;
+		}
+		_delay_ms(10);
+		* /
+	}
+	*/
 	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
 	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ); // wait for the end of a full idle cycle
 	while ( 1 ) {
@@ -184,7 +320,10 @@ int main(void) {
 			twpc_cycle(1);
 			twpc_my_id = twpc_receive_data();
 			twpc_state = 1;
-			twpc_response = TWPC_CMD_OK;
+			twpc_send_data(twpc_uid[0]);
+			twpc_send_data(twpc_uid[1]);
+			twpc_send_data(twpc_uid[2]);
+			twpc_response = TWPC_DEV_TRAIN;
 		} else if ( twpc_state == 1 ) { // send response to the master
 			twpc_send_data(twpc_response);
 			twpc_send_data(TWPC_CMD_END);
@@ -201,6 +340,15 @@ int main(void) {
 				} else if ( cmd == TWPC_CMD_LIGHT_OFF ) {
 					led_off();
 					twpc_response = TWPC_CMD_OK;
+				} else if ( cmd == TWPC_CMD_STOP ) {
+					motor_off();
+					twpc_response = TWPC_CMD_OK;
+				} else if ( cmd == TWPC_CMD_MOTORA ) {
+					motor_a(40);
+					twpc_response = TWPC_CMD_OK;
+				} else if ( cmd == TWPC_CMD_MOTORB ) {
+					motor_b(40);
+					twpc_response = TWPC_CMD_OK;
 				} else if ( cmd == TWPC_CMD_NEW_DEVICE ) {
 					twpc_state = 3;
 				}
@@ -210,6 +358,9 @@ int main(void) {
 			}
 		} else if ( twpc_state == 3 ) { // wait until the new guy connects
 			if ( twpc_cycle(0) ) {
+				twpc_receive_data();
+				twpc_receive_data();
+				twpc_receive_data();
 				twpc_receive_data();
 				twpc_receive_data();
 				twpc_receive_data();

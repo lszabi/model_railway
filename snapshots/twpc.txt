@@ -12,7 +12,7 @@ Connection:
 	master: 255 + NEW_DEVICE
 	slave: 1 bit
 	master:	new id
-	slave:	OK + END
+	slave:	uid + [DEV_TRAIN | DEV_STATION] + END
 
 Data transmit:
 	master:	id + command
@@ -33,12 +33,18 @@ Communication slave states:
 
 Commands:
 (0x00 can be misleading, don't use it)
-	NOP			0x01
-	END			0x02
-	DATA		0x03 (unused)
-	ERR			0x04
-	NEW_DEVICE	0x05
-	DISCONNECT	0x06
-	LIGHT_ON	0x07
-	LIGHT_OFF	0x08
-	STOP		0x09
+#define TWPC_CMD_NOP 0x01
+#define TWPC_CMD_END 0x02
+#define TWPC_CMD_DATA 0x03
+#define TWPC_CMD_ERR 0x04
+#define TWPC_CMD_OK 0x05
+#define TWPC_CMD_NEW_DEVICE 0x06
+#define TWPC_CMD_DISCONNECT 0x07
+#define TWPC_CMD_LIGHT_ON 0x08
+#define TWPC_CMD_LIGHT_OFF 0x09
+#define TWPC_CMD_STOP 0x0A
+#define TWPC_CMD_MOTORA 0x0B
+#define TWPC_CMD_MOTORB 0x0C
+
+#define TWPC_DEV_STATION 0xFE
+#define TWPC_DEV_TRAIN 0xFF
