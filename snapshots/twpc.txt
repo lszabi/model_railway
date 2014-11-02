@@ -45,6 +45,10 @@ Commands:
 #define TWPC_CMD_STOP 0x0A
 #define TWPC_CMD_MOTORA 0x0B
 #define TWPC_CMD_MOTORB 0x0C
+#define TWPC_CMD_UID1 0x0D
+#define TWPC_CMD_UID2 0x0E
+#define TWPC_CMD_UID3 0x0F
+#define TWPC_CMD_TYPE 0x10
 
 #define TWPC_DEV_STATION 0xFE
 #define TWPC_DEV_TRAIN 0xFF

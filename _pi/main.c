@@ -5,6 +5,14 @@
 #include <sys/ioctl.h>
 #include <string.h>
 
+/*
+RaspberryPi UART software for model railway
+connects to Arduino MEGA
+created by LSzabi
+
+thanks to wiringPi library for their code
+*/
+
 int uart_stream = -1;
 
 void uart_setup() {

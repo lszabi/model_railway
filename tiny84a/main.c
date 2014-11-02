@@ -41,11 +41,17 @@ This code will run the brains of the train engines.
 #define TWPC_CMD_STOP 0x0A
 #define TWPC_CMD_MOTORA 0x0B
 #define TWPC_CMD_MOTORB 0x0C
+#define TWPC_CMD_UID1 0x0D
+#define TWPC_CMD_UID2 0x0E
+#define TWPC_CMD_UID3 0x0F
+#define TWPC_CMD_TYPE 0x10
 
 #define TWPC_DEV_STATION 0xFE
 #define TWPC_DEV_TRAIN 0xFF
 
 static const char twpc_uid[] = "ASD";
+
+static const int twpc_static_id = 39; // set 0 to disable
 
 static int twpc_state = 0;
 static uint8_t twpc_my_id = 0; // my own id
@@ -289,40 +295,17 @@ int main(void) {
 	twpc_init();
 	motor_init();
 	onewire_wait_signal();
-	_delay_ms(2000); // wait for proper connection and power
-	blink();
-	/*
-	int pwm = 1;
-	int a = 1;
-	while ( 1 ) {
-		motor_a(48);
-		_delay_ms(1000);
-		motor_off();
-		_delay_ms(1000);
-		motor_b(48);
-		_delay_ms(1000);
-		motor_off();
-		_delay_ms(1000);
-		/*
-		motor_a(pwm);
-		pwm += a;
-		if ( pwm <= 1 || pwm >= 0xFE ) {
-			a *= -1;
-		}
-		_delay_ms(10);
-		* /
+	_delay_ms(1000); // wait for proper connection and power
+	if ( twpc_static_id ) {
+		twpc_my_id = twpc_static_id;
+		twpc_state = 2;
 	}
-	*/
-	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
-	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ); // wait for the end of a full idle cycle
+	blink();
 	while ( 1 ) {
 		if ( twpc_state == 0 ) { // connecting to master ( could've been before the while(1), but it isn't )
 			twpc_cycle(1);
 			twpc_my_id = twpc_receive_data();
 			twpc_state = 1;
-			twpc_send_data(twpc_uid[0]);
-			twpc_send_data(twpc_uid[1]);
-			twpc_send_data(twpc_uid[2]);
 			twpc_response = TWPC_DEV_TRAIN;
 		} else if ( twpc_state == 1 ) { // send response to the master
 			twpc_send_data(twpc_response);
@@ -332,7 +315,7 @@ int main(void) {
 			uint8_t id = twpc_receive_data();
 			uint8_t cmd = twpc_receive_data();
 			if ( id == twpc_my_id || id == 255 ) {
-				if ( cmd == TWPC_CMD_NOP ) { // obey the mighty mega2560
+				if ( cmd == TWPC_CMD_NOP ) { // obey the mighty mega
 					twpc_response = TWPC_CMD_OK;
 				} else if ( cmd == TWPC_CMD_LIGHT_ON ) {
 					led_on();
@@ -351,6 +334,14 @@ int main(void) {
 					twpc_response = TWPC_CMD_OK;
 				} else if ( cmd == TWPC_CMD_NEW_DEVICE ) {
 					twpc_state = 3;
+				} else if ( cmd == TWPC_CMD_UID1 ) {
+					twpc_response = twpc_uid[0];
+				} else if ( cmd == TWPC_CMD_UID2 ) {
+					twpc_response = twpc_uid[1];
+				} else if ( cmd == TWPC_CMD_UID3 ) {
+					twpc_response = twpc_uid[2];
+				} else if ( cmd == TWPC_CMD_TYPE ) {
+					twpc_response = TWPC_DEV_TRAIN;
 				}
 			}
 			if ( id == twpc_my_id ) { // don't send response to broadcast packet
@@ -358,9 +349,6 @@ int main(void) {
 			}
 		} else if ( twpc_state == 3 ) { // wait until the new guy connects
 			if ( twpc_cycle(0) ) {
-				twpc_receive_data();
-				twpc_receive_data();
-				twpc_receive_data();
 				twpc_receive_data();
 				twpc_receive_data();
 				twpc_receive_data();

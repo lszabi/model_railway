@@ -3,6 +3,16 @@
 <a href="?a=l&id=0">get log</a> | <a href="../">back</a><br />
 <?php
 
+/*
+Model railway controller
+created by LSzabi
+
+uses RaspberryPi to connect to Arduino MEGA via UART
+see main.c
+
+Don't forget: sudo chmod a+rw /dev/ttyAMA0
+*/
+
 function format_id($id) {
 	$id = strtoupper(dechex($id));
 	while ( strlen($id) < 2 ) {
