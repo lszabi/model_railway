@@ -15,19 +15,19 @@ Slave code
 This code will run the brains of the train engines.
 */
 
-#define LED_P 3
+#define LED_P 0
 #define LED_PORT PORTA
 #define LED_DDR DDRA
 
-#define ONEWIRE_P 2
+#define ONEWIRE_P 0
 #define ONEWIRE_DDR DDRB
 #define ONEWIRE_PORT PORTB
 #define ONEWIRE_PIN PINB
 
-#define TWPC_DATA_P 7
-#define TWPC_DATA_DDR DDRA
-#define TWPC_DATA_PORT PORTA
-#define TWPC_DATA_PIN PINA
+#define TWPC_DATA_P 1
+#define TWPC_DATA_DDR DDRB
+#define TWPC_DATA_PORT PORTB
+#define TWPC_DATA_PIN PINB
 
 #define TWPC_CMD_NOP 0x01
 #define TWPC_CMD_END 0x02
@@ -51,7 +51,7 @@ This code will run the brains of the train engines.
 
 static const char twpc_uid[] = "ASD";
 
-static const int twpc_static_id = 39; // set 0 to disable
+static const int twpc_static_id = 165; // set 0 to disable
 
 static int twpc_state = 0;
 static uint8_t twpc_my_id = 0; // my own id
@@ -104,17 +104,17 @@ pwm_b	1		0		pwm		0		motor_b(pwm)
 
 void motor_pch_a(int s) {
 	if ( s ) {
-		PORTB |= _BV(0);
+		PORTA |= _BV(7);
 	} else {
-		PORTB &= ~_BV(0);
+		PORTA &= ~_BV(7);
 	}
 }
 
 void motor_pch_b(int s) {
 	if ( s ) {
-		PORTA |= _BV(0);
+		PORTA |= _BV(4);
 	} else {
-		PORTA &= ~_BV(0);
+		PORTA &= ~_BV(4);
 	}
 }
 
@@ -209,7 +209,7 @@ void onewire_wait_signal(void) {
 void onewire_send_signal(void) {
 	ONEWIRE_DDR |= _BV(ONEWIRE_P);
 	ONEWIRE_PORT |= _BV(ONEWIRE_P);
-	_delay_us(20);
+	_delay_us(10);
 	ONEWIRE_PORT &= ~_BV(ONEWIRE_P);
 }
 
@@ -218,8 +218,9 @@ void onewire_send_data(uint8_t d) {
 		if ( d & _BV(i) ) {
 			onewire_send_signal();
 		} else {
-			_delay_us(20);
+			_delay_us(10);
 		}
+		_delay_us(5);
 	}
 }
 
