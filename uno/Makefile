@@ -2,7 +2,7 @@ MCU = atmega328p
 F_CPU = 16000000L
 
 PROG = arduino
-PORT = com3
+PORT = com5
 UP_BAUD = 115200
 
 CC = avr-gcc
@@ -12,6 +12,9 @@ CFLAGS = -mmcu=$(MCU) -DF_CPU=$(F_CPU) -Os -Wall -Wstrict-prototypes -std=gnu99 
 LDFLAGS = -Wl,--gc-sections
 
 all: main.hex
+
+%.S: %.c
+	$(CC) $(CFLAGS) -S -o $@ $<
 
 %.elf: main.o
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<

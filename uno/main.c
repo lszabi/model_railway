@@ -3,64 +3,31 @@
 #include <util/delay.h>
 
 /*
-1-wire communication
-Slave code
-created by LSzabi
 
-Send signal -> Receive Signal + 8bit id
+Model railway slave code
+created by L Szabi 2015
 
-2 wire power communication (TWPC)
-Slave code
-
-The same as the ATtiny84A code
-(except for pin definition macros below)
-see ../tiny84a/main.c
 */
+
+#define TWPC_UID 21
 
 #define LED_P 5
 #define LED_PORT PORTB
 #define LED_DDR DDRB
 
-#define ONEWIRE_P 2
-#define ONEWIRE_DDR DDRD
+#define TWPC_P 0
+#define TWPC_PORT PORTB
+#define TWPC_PIN PINB
+#define TWPC_DDR DDRB
+
+#define ONEWIRE_P 6
 #define ONEWIRE_PORT PORTD
 #define ONEWIRE_PIN PIND
+#define ONEWIRE_DDR DDRD
 
-#define TWPC_DATA_P 3
-#define TWPC_DATA_DDR DDRD
-#define TWPC_DATA_PORT PORTD
-#define TWPC_DATA_PIN PIND
+#define TWPC_DATA_BITS 8
 
-#define TWPC_CMD_NOP 0x01
-#define TWPC_CMD_END 0x02
-#define TWPC_CMD_DATA 0x03
-#define TWPC_CMD_ERR 0x04
-#define TWPC_CMD_OK 0x05
-#define TWPC_CMD_NEW_DEVICE 0x06
-#define TWPC_CMD_DISCONNECT 0x07
-#define TWPC_CMD_LIGHT_ON 0x08
-#define TWPC_CMD_LIGHT_OFF 0x09
-#define TWPC_CMD_STOP 0x0A
-
-static int twpc_state = 0;
-static uint8_t twpc_my_id = 0; // my own id
-static uint8_t twpc_response = 0; // response to send
-
-void blink_d(uint8_t d) {
-	for ( int i = 0; i < 8; i++ ) {
-		if ( d & ( 1 << i ) ) {
-			PORTB |= _BV(0);
-			_delay_ms(20);
-			PORTB &= ~_BV(0);
-			_delay_ms(400);
-		} else {
-			PORTB |= _BV(1);
-			_delay_ms(20);
-			PORTB &= ~_BV(1);
-			_delay_ms(400);
-		}
-	}
-}
+// LED driver
 
 void led_on(void) {
 	LED_PORT |= _BV(LED_P);
@@ -70,157 +37,193 @@ void led_off(void) {
 	LED_PORT &= ~_BV(LED_P);
 }
 
-void blink(void) {
-	led_on();
-	_delay_ms(5);
+void led_init(void) {
+	LED_DDR |= _BV(LED_P);
 	led_off();
 }
 
-void dbg(void) {
-	PORTB |= _BV(0);
-	_delay_us(2);
-	PORTB &= ~_BV(0);
+void led_blink(void) {
+	led_on();
+	_delay_ms(50);
+	led_off();
 }
 
-// ** ONEWIRE ** //
+// Main
 
-void onewire_wait_signal(void) {
+#define TWPC_STATE_RECV 0
+#define TWPC_STATE_SEND 1
+
+static volatile int twpc_even = 1;
+
+static volatile int twpc_bit = 0;
+static volatile int twpc_data = 0;
+static volatile int twpc_received = 0;
+
+static volatile int twpc_state = 0;
+
+static volatile int onewire_bit = 0;
+static volatile int onewire_even = 0;
+
+// inverted logic
+static int twpc_read(void) {
+	TWPC_DDR &= ~_BV(TWPC_P);
+	return !( TWPC_PIN & _BV(TWPC_P) ) ? 1 : 0;
+}
+
+static void twpc_line_off(void) {
+	TWPC_DDR |= _BV(TWPC_P);
+	TWPC_PORT |= _BV(TWPC_P);
+}
+
+static void twpc_line_on(void) {
+	TWPC_DDR |= _BV(TWPC_P);
+	TWPC_PORT &= ~_BV(TWPC_P);
+}
+
+static int onewire_read(void) {
 	ONEWIRE_DDR &= ~_BV(ONEWIRE_P);
 	ONEWIRE_PORT &= ~_BV(ONEWIRE_P);
+	return ( ONEWIRE_PIN & _BV(ONEWIRE_P) ? 1 : 0 );
 }
 
-void onewire_send_signal(void) {
+static void onewire_line_off(void) {
 	ONEWIRE_DDR |= _BV(ONEWIRE_P);
-	ONEWIRE_PORT |= _BV(ONEWIRE_P);
-	_delay_us(20);
 	ONEWIRE_PORT &= ~_BV(ONEWIRE_P);
 }
 
-void onewire_send_data(uint8_t d) {
-	for ( int i = 0; i < 8; i++ ) {
-		if ( d & _BV(i) ) {
-			onewire_send_signal();
+static void onewire_line_on(void) {
+	ONEWIRE_DDR |= _BV(ONEWIRE_P);
+	ONEWIRE_PORT |= _BV(ONEWIRE_P);
+}
+
+void com_init(void) {
+	OCR1A = 30; // 0.5ms
+	TCCR1A = 0;
+	TCCR1B = _BV(WGM12) | _BV(CS12); // F_CPU/256, CTC mode
+	TIMSK1 = _BV(OCIE1A);
+}
+
+void com_send(int data) {
+	twpc_bit = 0;
+	twpc_data = data;
+	twpc_state = TWPC_STATE_SEND;
+}
+
+ISR(TIMER1_COMPA_vect) {
+	// code for onewire
+	if ( onewire_even ) {
+		if ( onewire_bit == 0 ) {
+			if ( onewire_read() ) {
+				onewire_bit = 1;
+			}
+		} else if ( onewire_bit == 1 ) {
+			onewire_line_on();
+			onewire_bit = 2;
+		} else if ( onewire_bit > 1 && onewire_bit < 10 ) {
+			if ( TWPC_UID & _BV(onewire_bit - 2) ) {
+				onewire_line_on();
+			} else {
+				onewire_line_off();
+			}
+			onewire_bit++;
+		} else if ( onewire_bit == 10 ) {
+			onewire_line_on(); // error checking
+			onewire_bit++;
 		} else {
-			_delay_us(20);
+			onewire_read();
+			onewire_bit = 0;
+		}
+	} else {
+		if ( onewire_bit == 0 && onewire_read() ) {
+			onewire_bit = 1;
+			onewire_even = 1; // sync
 		}
 	}
-}
-
-void onewire_cycle(void) {
-	if ( ONEWIRE_PIN & _BV(ONEWIRE_P) ) {
-		while ( ONEWIRE_PIN & _BV(ONEWIRE_P) );
-		//dbg();
-		// response
-		_delay_us(5);
-		onewire_send_signal();
-		onewire_send_data(twpc_my_id);
-		onewire_wait_signal();
-	}
-}
-
-// ** TWPC ** //
-
-void twpc_init(void) {
-#ifdef TWPC_POWER_DDR
-	TWPC_POWER_DDR |= _BV(TWPC_POWER_P);
-	TWPC_POWER_PORT &= ~_BV(TWPC_POWER_P);
-#endif
-	TWPC_DATA_DDR &= ~_BV(TWPC_DATA_P);
-	TWPC_DATA_PORT &= ~_BV(TWPC_DATA_P);
-}
-
-// Slave cycle
-int twpc_cycle(int send_data) {
-	int d = 0;
-	// power cycle
-	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
-	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) {
-		onewire_cycle();
-	}
-	_delay_us(20);
-	// data cycle
-	if ( send_data ) {
-		TWPC_DATA_DDR |= _BV(TWPC_DATA_P);
-		TWPC_DATA_PORT |= _BV(TWPC_DATA_P);
-	}
-	_delay_us(40);
-	if ( !send_data ) {
-		TWPC_DATA_DDR &= ~_BV(TWPC_DATA_P);
-		TWPC_DATA_PORT &= ~_BV(TWPC_DATA_P);
-		if ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) {
-			d = 1;
+	// code for twpc
+	if ( !twpc_even ) {
+		// code for sending ( synchronize )
+		if ( twpc_state == TWPC_STATE_SEND && twpc_bit == 0 && twpc_read() ) {
+			twpc_bit = 1;
+			twpc_even = 1; // turn parity
+		}
+		// code for receiving
+		if ( twpc_state == TWPC_STATE_RECV ) {
+			if ( twpc_bit == 0 ) { // first start bit
+				if ( twpc_read() ) {
+					twpc_bit = 1;
+				}
+			} else if ( twpc_bit == 1 ) { // second start bit
+				if ( !twpc_read() ) {
+					twpc_bit = 2;
+					twpc_data = 0;
+				} else {
+					twpc_bit = 0; // failed
+				}
+			} else if ( twpc_bit >= 2 && twpc_bit < 2 + TWPC_DATA_BITS ) { // read data
+				twpc_data |= twpc_read() << ( twpc_bit - 2 );
+				twpc_bit++;
+			} else {
+				twpc_bit = 0;
+				twpc_received = 1;
+			}
+		}
+	} else {
+		// code for receiving ( synchronize )
+		if ( twpc_state == TWPC_STATE_RECV && twpc_bit == 1 && !twpc_read() ) {
+			twpc_bit = 2;
+			twpc_data = 0;
+			twpc_even = 0; // turn parity
+		}
+		// code for sending
+		if ( twpc_state == TWPC_STATE_SEND ) {
+			if ( twpc_bit == 0 ) { // waiting for first start bit
+				if ( twpc_read() ) {
+					twpc_bit = 1;
+				}
+			} else if ( twpc_bit == 1 ) {
+				twpc_line_off(); // sending second start bit: '0' -> +V
+				twpc_bit = 2;
+			} else if ( twpc_bit >= 2 && twpc_bit < 2 + TWPC_DATA_BITS ) { // sending data
+				if ( twpc_data & _BV(twpc_bit - 2) ) {
+					twpc_line_on();
+				} else {
+					twpc_line_off();
+				}
+				twpc_bit++;
+			} else {
+				twpc_state = TWPC_STATE_RECV;
+			}
 		}
 	}
-	_delay_us(40);
-	TWPC_DATA_DDR &= ~_BV(TWPC_DATA_P);
-	TWPC_DATA_PORT &= ~_BV(TWPC_DATA_P);
-	return d;
+	twpc_even ^= 1;
+	onewire_even ^= 1;
 }
 
-void twpc_send_data(uint8_t d) {
-	for ( int i = 0; i < 8; i++ ) {
-		twpc_cycle(d & _BV(i));
-	}
-}
-
-uint8_t twpc_receive_data(void) {
-	uint8_t d = 0;
-	for ( int i = 0; i < 8; i++ ) {
-		if ( twpc_cycle(0) ) {
-			d |= _BV(i);
-		}
-	}
-	return d;
+void dbg(int t) {
+	PORTB |= _BV(4);
+	_delay_ms(t);
+	PORTB &= ~_BV(4);
 }
 
 int main(void) {
-	LED_DDR |= _BV(LED_P);
-	led_off();
-	twpc_init();
-	onewire_wait_signal();
-	_delay_ms(2000); // wait for proper connection and power
-	blink();
-	while ( !( TWPC_DATA_PIN & _BV(TWPC_DATA_P) ) );
-	while ( TWPC_DATA_PIN & _BV(TWPC_DATA_P) );
+	cli();
+	led_init();
+	com_init();
+	DDRB |= _BV(4) | _BV(3); // debug
+	sei();
 	while ( 1 ) {
-		/* */
-		if ( twpc_state == 0 ) {
-			twpc_cycle(1);
-			twpc_my_id = twpc_receive_data();
-			twpc_state = 1;
-			twpc_response = TWPC_CMD_OK;
-		} else if ( twpc_state == 1 ) {
-			twpc_send_data(twpc_response);
-			twpc_send_data(TWPC_CMD_END);
-			twpc_state = 2;
-		} else if ( twpc_state == 2 ) {
-			uint8_t id = twpc_receive_data();
-			uint8_t cmd = twpc_receive_data();
-			if ( id == twpc_my_id || id == 255 ) {
-				if ( cmd == TWPC_CMD_NOP ) {
-					twpc_response = TWPC_CMD_OK;
-				} else if ( cmd == TWPC_CMD_LIGHT_ON ) {
-					led_on();
-					twpc_response = TWPC_CMD_OK;
-				} else if ( cmd == TWPC_CMD_LIGHT_OFF ) {
-					led_off();
-					twpc_response = TWPC_CMD_OK;
-				} else if ( cmd == TWPC_CMD_NEW_DEVICE ) {
-					twpc_state = 3;
-				}
+		if ( twpc_received ) {
+			/*
+			if ( twpc_data == 199 ) {
+				dbg(1);
+				com_send(85);
 			}
-			if ( id == twpc_my_id ) { // don't send response to broadcast packet
-				twpc_state = 1;
+			*/
+			if ( twpc_data == TWPC_UID ) {
+				led_blink();
 			}
-		} else if ( twpc_state == 3 ) {
-			if ( twpc_cycle(0) ) {
-				twpc_receive_data();
-				twpc_receive_data();
-				twpc_receive_data();
-				twpc_state = 2;
-			}
+			twpc_received = 0;
 		}
-		/* */
 	}
 	return 1;
 }

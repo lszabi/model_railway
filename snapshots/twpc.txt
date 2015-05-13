@@ -1,35 +1,9 @@
 
 	*** Two Wire Powered Communication protocol ***
 
-Byte format: 8 data bits
-
-400+ us power cycle + 80 us data cycle (1 bit each) with 20 us spaces
 see /mega/main.c for more details
 
 Broadcast id: 255
-
-Connection:
-	master: 255 + NEW_DEVICE
-	slave: 1 bit
-	master:	new id
-	slave:	uid + [DEV_TRAIN | DEV_STATION] + END
-
-Data transmit:
-	master:	id + command
-	slave:	response + [END | DATA]
-
-END: next id
-
-Communcation master states:
-	0, expect 1 bit
-	1, expect data + END
-	2, send data
-
-Communication slave states:
-	0, connect
-	1, send response
-	2, receive command
-	3, wait 1 bit + id + 2 byte
 
 Commands:
 (0x00 can be misleading, don't use it)
