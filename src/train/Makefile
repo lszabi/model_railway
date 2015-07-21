@@ -2,7 +2,7 @@ MCU = attiny84
 F_CPU = 8000000L
 
 PROG = arduino
-PORT = com3
+PORT = com5
 UP_BAUD = 19200
 
 CC = avr-gcc

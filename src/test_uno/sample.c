@@ -1,11 +1,14 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
+#include <string.h>
 
 /*
 
 Model railway slave code
 created by L Szabi 2015
+
+(sample code for slave device)
 
 */
 
@@ -24,8 +27,6 @@ created by L Szabi 2015
 #define ONEWIRE_PORT PORTD
 #define ONEWIRE_PIN PIND
 #define ONEWIRE_DDR DDRD
-
-#define TWPC_DATA_BITS 8
 
 // LED driver
 
@@ -52,6 +53,27 @@ void led_blink(void) {
 
 #define TWPC_STATE_RECV 0
 #define TWPC_STATE_SEND 1
+
+#define TWPC_DATA_BITS ( sizeof(twpc_packet_t) * 8 )
+#define TWPC_BUFFER_SIZE 32
+
+typedef union {
+	uint32_t data_raw;
+	struct {
+		uint8_t uid;
+		uint8_t cmd;
+		uint16_t arg;
+	} __attribute__((packed));
+} __attribute__((packed)) twpc_packet_t;
+
+typedef struct {
+	twpc_packet_t buffer[TWPC_BUFFER_SIZE];
+	int start;
+	int end;
+} twpc_buffer_t;
+
+static volatile twpc_buffer_t twpc_buffer_in;
+static volatile twpc_buffer_t twpc_buffer_out;
 
 static volatile int twpc_even = 1;
 
@@ -94,6 +116,26 @@ static void onewire_line_off(void) {
 static void onewire_line_on(void) {
 	ONEWIRE_DDR |= _BV(ONEWIRE_P);
 	ONEWIRE_PORT |= _BV(ONEWIRE_P);
+}
+
+static void twpc_buffer_store(volatile twpc_buffer_t *b, twpc_packet_t *p) {
+	int i = ( b->end + 1 ) % TWPC_BUFFER_SIZE;
+	while ( b->start == i );
+	memcpy(&(b->buffer[b->end]), p, sizeof(twpc_packet_t));
+	b->end = i;
+}
+
+static twpc_packet_t twpc_buffer_get(volatile twpc_buffer_t *b) {
+	if ( b->start != b->end ) {
+		int t = b->start;
+		b->start = ( b->start + 1 ) % TWPC_BUFFER_SIZE;
+		return b->buffer[t];
+	}
+	return (twpc_packet_t)0;
+}
+
+static int twpc_buffer_available(volatile twpc_buffer_t *b) {
+	return ( TWPC_BUFFER_SIZE + b->end - b->start ) % TWPC_BUFFER_SIZE;
 }
 
 void com_init(void) {
