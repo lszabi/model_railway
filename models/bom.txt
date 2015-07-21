@@ -1,0 +1,9 @@
+Bill of materials
+
+train.stl		2.65m
+car.stl
+
+rail.stl		3.15m
+curved_rail.stl	3.90m
+
+todo: complete list
