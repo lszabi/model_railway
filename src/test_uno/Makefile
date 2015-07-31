@@ -16,8 +16,8 @@ all: main.hex
 %.S: %.c
 	$(CC) $(CFLAGS) -S -o $@ $<
 
-%.elf: main.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $<
+%.elf: main.o serial.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 clean:
 	rm -rf *.o *.elf *.lst *.map *.sym *.lss *.eep *.srec *.bin *.hex *.tmp.sh
