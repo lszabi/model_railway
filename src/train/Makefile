@@ -1,5 +1,5 @@
 MCU = attiny84
-F_CPU = 8000000L
+F_CPU = 16000000L
 
 PROG = arduino
 PORT = com5
@@ -26,4 +26,4 @@ upload: all
 	avrdude -c $(PROG) -p $(MCU) -P $(PORT) -b $(UP_BAUD) -Uflash:w:main.hex:i
 
 fuse:
-	avrdude -c $(PROG) -p $(MCU) -P $(PORT) -b $(UP_BAUD) -U lfuse:w:0xE2:m -U hfuse:w:0xDF:m -U efuse:w:0xFF:m -U lock:w:0xFF:m
+	avrdude -c $(PROG) -p $(MCU) -P $(PORT) -b $(UP_BAUD) -U lfuse:w:0xDE:m -U hfuse:w:0xDF:m -U efuse:w:0xFF:m -U lock:w:0xFF:m

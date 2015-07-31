@@ -18,48 +18,33 @@ Code for trains
 
 #define TWPC_UID 0xAA
 
-#define LED_P 1
+#define LED_P 0
 #define LED_PORT PORTA
 #define LED_DDR DDRA
 
-#define TWPC_P_A 2
-#define TWPC_PORT_A PORTA
-#define TWPC_PIN_A PINA
-#define TWPC_DDR_A DDRA
-
-#define TWPC_P_B 3
-#define TWPC_PORT_B PORTA
-#define TWPC_PIN_B PINA
-#define TWPC_DDR_B DDRA
+#define TWPC_P 1
+#define TWPC_PORT PORTB
+#define TWPC_PIN PINB
+#define TWPC_DDR DDRB
 
 #define ONEWIRE_P 0
-#define ONEWIRE_PORT PORTA
-#define ONEWIRE_PIN PINA
-#define ONEWIRE_DDR DDRA
-
-static const char name[] = "BLU";
+#define ONEWIRE_PORT PORTB
+#define ONEWIRE_PIN PINB
+#define ONEWIRE_DDR DDRB
 
 // LED
 
-static int led_status = 0;
-
 void led_on(void) {
 	LED_PORT |= _BV(LED_P);
-	led_status = 1;
 }
 
 void led_off(void) {
 	LED_PORT &= ~_BV(LED_P);
-	led_status = 0;
 }
 
 void led_init(void) {
 	LED_DDR |= _BV(LED_P);
 	led_off();
-}
-
-int led_state(void) {
-	return led_status;
 }
 
 void led_blink(void) {
@@ -76,9 +61,6 @@ off		1		1		1		1		motor_off()
 pwm_a	0		1		0		pwm		motor_a(pwm)
 pwm_b	1		0		pwm		0		motor_b(pwm)
 */
-
-static int motor_speed = 0;
-static int motor_dir = 0;
 
 static void motor_pch_a(int s) {
 	if ( s ) {
@@ -149,9 +131,9 @@ void motor_init(void) {
 }
 
 void motor_a(uint8_t s) {
-	motor_pwm_a_dig(0);
-	motor_pch_b(1);
 	motor_pch_a(0);
+	motor_pch_b(1);
+	motor_pwm_a_dig(0);
 	if ( s == 0xFF ) {
 		motor_detach_pwm();
 		motor_pwm_b_dig(1);
@@ -160,14 +142,12 @@ void motor_a(uint8_t s) {
 	} else {
 		motor_pwm_b(s);
 	}
-	motor_speed = s;
-	motor_dir = 1;
 }
 
 void motor_b(uint8_t s) {
-	motor_pwm_b_dig(0);
 	motor_pch_a(1);
 	motor_pch_b(0);
+	motor_pwm_b_dig(0);
 	if ( s == 0xFF ) {
 		motor_detach_pwm();
 		motor_pwm_a_dig(1);
@@ -176,16 +156,6 @@ void motor_b(uint8_t s) {
 	} else {
 		motor_pwm_a(s);
 	}
-	motor_speed = s;
-	motor_dir = 0;
-}
-
-int motor_get_speed(void) {
-	return motor_speed;
-}
-
-int motor_get_dir(void) {
-	return motor_dir;
 }
 
 // Communication
@@ -196,8 +166,6 @@ static volatile int twpc_even = 1;
 static volatile int twpc_bit = 0;
 static volatile int twpc_send = 0;
 
-static volatile int twpc_pin = 0;
-
 static volatile int onewire_bit = 0;
 static volatile int onewire_even = 0;
 
@@ -206,41 +174,18 @@ volatile int com_received = 0;
 
 // inverted logic
 static uint32_t twpc_read(void) {
-	TWPC_DDR_A &= ~_BV(TWPC_P_A);
-	TWPC_DDR_B &= ~_BV(TWPC_P_B);
-	if ( TWPC_PIN_A & _BV(TWPC_P_A) ) {
-		twpc_pin = 0;
-	} else if ( TWPC_PIN_B & _BV(TWPC_P_B) ) {
-		twpc_pin = 1;
-	} else {
-		return 1UL;
-	}
-	/*
-	if ( !( TWPC_PIN_A & _BV(TWPC_P_A) ) ) {
-		return 1UL;
-	}
-	*/
-	return 0UL;
+	TWPC_DDR &= ~_BV(TWPC_P);
+	return !( TWPC_PIN & _BV(TWPC_P) ) ? 1UL : 0UL;
 }
 
 static void twpc_line_off(void) { // '0'
-	if ( twpc_pin ) {
-		TWPC_DDR_B |= _BV(TWPC_P_B);
-		TWPC_PORT_B |= _BV(TWPC_P_B);
-	} else {
-		TWPC_DDR_A |= _BV(TWPC_P_A);
-		TWPC_PORT_A |= _BV(TWPC_P_A);
-	}
+	TWPC_DDR |= _BV(TWPC_P);
+	TWPC_PORT |= _BV(TWPC_P);
 }
 
 static void twpc_line_on(void) { // '1'
-	if ( twpc_pin ) {
-		TWPC_DDR_B |= _BV(TWPC_P_B);
-		TWPC_PORT_B &= ~_BV(TWPC_P_B);
-	} else {
-		TWPC_DDR_A |= _BV(TWPC_P_A);
-		TWPC_PORT_A &= ~_BV(TWPC_P_A);
-	}
+	TWPC_DDR |= _BV(TWPC_P);
+	TWPC_PORT &= ~_BV(TWPC_P);
 }
 
 static int onewire_read(void) {
@@ -260,9 +205,9 @@ static void onewire_line_on(void) {
 }
 
 void com_init(void) {
-	OCR0A = 30; // 0.5ms
+	OCR0A = 62; // 0.5ms
 	TCCR0A = _BV(WGM01); // CTC mode
-	TCCR0B = _BV(CS02); // F_CPU/256
+	TCCR0B = _BV(CS01) | _BV(CS00); // F_CPU/64
 	TIMSK0 = _BV(OCIE0A);
 }
 
@@ -314,14 +259,13 @@ ISR(TIM0_COMPA_vect) {
 				twpc_line_off();
 				twpc_bit = 2;
 			} else if ( twpc_bit >= 2 && twpc_bit < 2 + TWPC_DATA_BITS ) { // sending data
-				if ( com_data.data_raw & ( 1UL << ( twpc_bit - 2 ) ) ) {
+				if ( com_data.data_raw & ( 1UL << twpc_bit - 2 ) ) {
 					twpc_line_on();
 				} else {
 					twpc_line_off();
 				}
 				twpc_bit++;
 			} else if ( twpc_bit == 2 + TWPC_DATA_BITS ) {
-				twpc_read();
 				twpc_bit++;
 			} else {
 				twpc_send = 0;
@@ -366,28 +310,6 @@ ISR(TIM0_COMPA_vect) {
 
 // Main
 
-static char write_nibble(int x) {
-	if ( x >= 0 && x < 10 ) {
-		return '0' + x;
-	} else if ( x >= 0x0a && x <= 0x0f ) {
-		return 'a' + x - 0x0a;
-	}
-	return '0';
-}
-
-void write_byte(char *s, int x) {
-	s[0] = write_nibble((x & 0xF0) >> 4);
-	s[1] = write_nibble(x & 0x0F);
-}
-
-void write_int(char *s, uint32_t x) {
-	write_byte(s, x >> 24);
-	write_byte(&s[2], x >> 16);
-	write_byte(&s[4], x >> 8);
-	write_byte(&s[6], x);
-	s[8] = '\0';
-}
-
 int main(void) {
 	cli();
 	_delay_ms(200);
@@ -398,7 +320,6 @@ int main(void) {
 	led_blink();
 	while ( 1 ) {
 		if ( com_received ) {
-			com_received = 0;
 			if ( com_data.checksum == TWPC_CHECKSUM(com_data) ) {
 				if ( com_data.uid == TWPC_UID || com_data.uid == 255 ) {
 					if ( com_data.cmd == TWPC_CMD_LIGHT_ON ) {
@@ -411,28 +332,20 @@ int main(void) {
 					} else if ( com_data.cmd == TWPC_CMD_MOTOR_B ) {				
 						uint8_t speed = com_data.arg;
 						motor_b(speed);
-					} else if ( com_data.cmd == TWPC_CMD_STATUS ) {
-						if ( com_data.arg == 0 ) {
-							com_data.arg = led_state() | ( motor_get_dir() << 1 );
-						} else if ( com_data.arg == 1 ) {
-							com_data.arg = motor_get_speed();
-						} else {
-							com_data.arg = 0;
-						}
-					} else if ( com_data.cmd == TWPC_CMD_NAME && com_data.arg >= 0 && com_data.arg < 3 ) {
-						com_data.arg = name[com_data.arg];
-					}
-					com_data.checksum = TWPC_CHECKSUM(com_data);
-					if ( com_data.uid == TWPC_UID ) {
-						/*
-						com_data.cmd = TWPC_CMD_ACK;
-						com_data.arg = 0;
-						com_data.checksum = TWPC_CHECKSUM(com_data);
-						*/
-						com_send();
 					}
 				}
+				if ( com_data.uid == TWPC_UID ) {
+					/*
+					_delay_ms(100);
+					com_data.cmd = TWPC_CMD_ACK;
+					com_data.arg = 0;
+					com_data.checksum = TWPC_CHECKSUM(com_data);
+					*/
+					com_received = 0;
+					//com_send();
+				}
 			}
+			com_received = 0;
 		}
 	}
 	return 1;
