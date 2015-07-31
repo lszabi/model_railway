@@ -78,12 +78,27 @@ void serial_puts(char *c) {
 	CAT(UCSR, SERIAL_PORT, B) |= _BV(CAT(UDRIE, SERIAL_PORT,));
 }
 
+void serial_putn(char *c, int l) {
+	while ( l-- ) {
+		buf_store(*c++, &tx);
+	}
+	CAT(UCSR, SERIAL_PORT, B) |= _BV(CAT(UDRIE, SERIAL_PORT,));
+}
+
 int serial_available(void) {
 	return buf_available(&rx);
 }
 
 char serial_get(void) {
 	return buf_get(&rx);
+}
+
+int serial_gets(char *msg, int l) {
+	int i = 0;
+	while ( serial_available() && i < l) {
+		msg[i++] = serial_get();
+	}
+	return i;
 }
 
 char serial_wait(void) {

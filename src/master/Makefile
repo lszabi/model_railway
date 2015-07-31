@@ -2,8 +2,8 @@ MCU = atmega328p
 F_CPU = 16000000L
 
 PROG = arduino
-PORT = com5
-UP_BAUD = 19200
+PORT = /dev/ttyAMA0
+UP_BAUD = 115200
 
 CC = avr-gcc
 OBJCOPY = avr-objcopy

@@ -34,7 +34,9 @@ Code for master station
 #define TWPC_DATA_DDR DDRB
 #define TWPC_DATA_PIN PINB
 
-#define ONEWIRE_PINS_N 0
+#define TWPC_FAULT_THRESHOLD 10
+
+#define ONEWIRE_PINS_N 1
 
 #if ONEWIRE_PINS_N > 0
 static const int onewire_pins[] = { 0 }; // multiple places
@@ -70,6 +72,7 @@ void led_blink(void) {
 static volatile int twpc_even = 1;
 static volatile int twpc_bit = 0;
 static volatile int twpc_state = 0;
+static volatile int twpc_fault = 0;
 
 #if ONEWIRE_PINS_N > 0
 static volatile int onewire_even = 0;
@@ -141,25 +144,21 @@ void com_init(void) {
 #endif
 }
 
-void com_send(uint8_t uid, uint8_t cmd, uint16_t arg) {
+void com_send(twpc_packet_t *packet) {
 	while ( !twpc_sent );
 	twpc_sent = 0;
-	twpc_data_send.uid = uid;
-	twpc_data_send.cmd = cmd;
-	twpc_data_send.arg = arg;
+	twpc_data_send.data_raw = packet->data_raw;
 	twpc_bit = 0;
 	twpc_state = TWPC_STATE_SEND;
 }
 
-/*
-int com_recv(void) {
+void com_recv(void) {
+	while ( !twpc_sent );
 	twpc_bit = 0;
 	twpc_received = 0;
 	twpc_state = TWPC_STATE_RECV;
 	while ( twpc_received == 0 );
-	return twpc_data;
 }
-*/
 
 ISR(TIMER1_COMPA_vect) {
 #if ONEWIRE_PINS_N > 0
@@ -202,15 +201,17 @@ ISR(TIMER1_COMPA_vect) {
 			if ( twpc_bit == 0 ) {
 				twpc_line_on(); // first start bit '1'
 			} else if ( twpc_bit == 1 ) {
-				twpc_line_off(); // second start bit '0'	
+				twpc_line_off(); // second start bit '0'
 			} else if ( twpc_bit >= 2 && twpc_bit < 2 + TWPC_DATA_BITS ) { // send data
 				if ( twpc_data_send.data_raw & ( 1UL << (twpc_bit - 2) ) ) {
 					twpc_line_on();
 				} else {
 					twpc_line_off();
 				}
-			} else {
+			} else if ( twpc_bit == 2 + TWPC_DATA_BITS ) {
 				twpc_line_off();
+				twpc_bit++;
+			} else {
 				twpc_sent = 1;
 				twpc_state = TWPC_STATE_IDLE; // data sent
 			}
@@ -222,16 +223,30 @@ ISR(TIMER1_COMPA_vect) {
 			if ( twpc_bit == 0 ) { // send first start bit
 				twpc_line_on(); // '1' -> no voltage on line
 				twpc_bit = 1;
+				twpc_even ^= 1;
+				twpc_fault = 0;
 			} else if ( twpc_bit == 1 ) { // waiting for second start bit
 				if ( !twpc_read() ) {
 					twpc_data_recv.data_raw = 0;
 					twpc_bit = 2;
+				} else {
+					twpc_even ^= 1; // loop back
+#if TWPC_FAULT_THRESHOLD > 0
+					twpc_fault++;
+					if ( twpc_fault > TWPC_FAULT_THRESHOLD ) {
+						twpc_line_off();
+						twpc_received = 1;
+						twpc_state = TWPC_STATE_IDLE;
+					}
+#endif
 				}
 			} else if ( twpc_bit >= 2 && twpc_bit < 2 + TWPC_DATA_BITS ) { // read data
 				twpc_data_recv.data_raw |= twpc_read() << ( twpc_bit - 2 );
 				twpc_bit++;
-			} else {
+			} else if ( twpc_bit == 2 + TWPC_DATA_BITS ) {
 				twpc_line_off();
+				twpc_bit++;
+			} else {
 				twpc_received = 1;
 				twpc_state = TWPC_STATE_IDLE;
 			}
@@ -271,37 +286,58 @@ void write_byte(char *s, int x) {
 	s[1] = write_nibble(x & 0x0F);
 }
 
+void write_int(char *s, uint32_t x) {
+	write_byte(s, x >> 24);
+	write_byte(&s[2], x >> 16);
+	write_byte(&s[4], x >> 8);
+	write_byte(&s[6], x);
+	s[8] = '\0';
+}
+
 int main(void) {
 	cli();
 	led_init();
 	com_init();
 	serial_init(57600);
 	led_blink();
+	twpc_packet_t last_packet;
 	sei();
 	while ( 1 ) {
-		char c = serial_get();
-		if ( c == '1' ) {
-			com_send(255, TWPC_CMD_LIGHT_ON, 0);
-		} else if ( c == '0' ) {
-			com_send(255, TWPC_CMD_LIGHT_OFF, 0);
-		} else if ( c == 'm' ) {
-			c = serial_wait();
-			int dir = read_byte('0', c);
-			c = serial_wait();
-			char c2 = serial_wait();
-			int speed = read_byte(c, c2);
-			com_send(255, TWPC_CMD_MOTOR, dir << 8 | speed);
+		// Receive data from uart
+		if ( serial_available() >= sizeof(twpc_packet_t) ) {
+			serial_gets((char *)&last_packet, sizeof(twpc_packet_t));
+			if ( last_packet.checksum == TWPC_CHECKSUM(last_packet) ) {
+				int ok = 0;
+				//for ( int i = 0; i < 5; i++ ) {
+					com_send(&last_packet);
+					com_recv();
+					/*if ( twpc_data_recv.checksum == TWPC_CHECKSUM(twpc_data_recv) && twpc_data_recv.cmd == TWPC_CMD_ACK ) {
+						serial_puts("ok");
+						serial_put(write_nibble(i));
+						ok = 1;
+						break;
+					}*/
+					char msg[16];
+					write_int(msg, twpc_data_recv.data_raw);
+					serial_puts(msg);
+					twpc_data_recv.data_raw = 0;
+				/*}
+				if ( !ok ) {
+					serial_puts("re");
+				}*/
+			} else {
+				serial_puts("re");
+				serial_flush_rx();
+			}
 		}
-		/*
 		if ( onewire_got ) {
 			onewire_got = 0;
 			char buf[10];
-			write_byte(buf, onewire_pin);
-			write_byte(buf + 2, onewire_dev);
-			buf[4] = '\0';
-			serial_write(buf);
+			write_byte(buf, onewire_dev);
+			buf[2] = '\0';
+			serial_put('w');
+			serial_puts(buf);
 		}
-		*/
 	}
 	return 1;
 }

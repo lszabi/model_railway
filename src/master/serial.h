@@ -28,11 +28,13 @@ void serial_end(void);
 
 void serial_put(char);
 void serial_puts(char *);
+void serial_putn(char *, int l);
 
 int serial_available(void);
-
-char serial_get(void);
 char serial_wait(void);
 char serial_peek(void);
+
+char serial_get(void);
+int serial_gets(char *, int l);
 
 #endif
