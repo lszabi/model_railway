@@ -4,6 +4,7 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 #include <string.h>
+#include "uart.h"
 
 /*
 RaspberryPi UART software for model railway
@@ -13,7 +14,7 @@ created by LSzabi
 thanks to wiringPi library for their code
 */
 
-int uart_stream = -1;
+static int uart_stream = -1;
 
 void uart_setup() {
 	uart_stream = open("/dev/ttyAMA0", O_RDWR | O_NOCTTY | O_NDELAY | O_NONBLOCK);
@@ -32,7 +33,7 @@ void uart_setup() {
 	options.c_lflag &= ~( ICANON | ECHO | ECHOE | ISIG );
 	options.c_oflag &= ~OPOST;
 	options.c_cc[VMIN] = 0;
-	options.c_cc[VTIME] = 5; // wait time: seconds * 10
+	options.c_cc[VTIME] = 1; // wait time: n * 100ms
 	tcsetattr(uart_stream, TCSANOW | TCSAFLUSH, &options);
 	int status;
 	ioctl(uart_stream, TIOCMGET, &status);
@@ -42,10 +43,14 @@ void uart_setup() {
 	tcflush(uart_stream, TCIFLUSH);
 }
 
+void uart_close() {
+	close(uart_stream);
+}
+
 void uart_putchar(char c) {
 	int count = write(uart_stream, &c, 1);
 	if ( count != 1 ) {
-		printf("UART TX error\n");
+		printf("UART TX error (in putchar)\n");
 	}
 }
 
@@ -58,6 +63,8 @@ int uart_getchar() {
 }
 
 int uart_rx(char *s, int n) {
+	return read(uart_stream, s, n);
+	/*
 	int i;
 	for ( i = 0; i < n; i++ ) {
 		int c = uart_getchar();
@@ -68,29 +75,18 @@ int uart_rx(char *s, int n) {
 	}
 	s[i] = '\0';
 	return i;
+	*/
 }
 
 void uart_tx(char *s, int n) {
+	int count = write(uart_stream, s, n);
+	if ( count != n ) {
+		printf("UART TX error\n");
+	}
+	/*
 	int i;
 	for ( i = 0; i < n; i++ ) {
 		uart_putchar(s[i]);
 	}
-}
-
-void uart_close() {
-	close(uart_stream);
-}
-
-int main(int argc, char **argv) {
-	if ( argc > 1 ) {
-		uart_setup();
-		uart_tx(argv[1], strlen(argv[1]));
-		char s[128];
-		uart_rx(s, 128);
-		printf("%s", s);
-		uart_close();
-	} else {
-		printf("Nothing to send");
-	}
-	return 0;
+	*/
 }
