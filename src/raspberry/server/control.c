@@ -1,5 +1,13 @@
 #include "control.h"
 
+/*
+Packet format: cmd + args (1 byte hex each)
+Commads:
+l[uid][state] - set light
+m[uid][dir][speed] - set motor speed
+s[uid1][uid2][state] - state: 0 - straight, 1 - fork
+*/
+
 int hex_to_int(char *hex, int l) {
 	int n = 0;
 	for ( int i = 0; hex[i] && i < l; i++ ) {
@@ -32,10 +40,11 @@ int control_handle(char *msg, twpc_packet_t *packet) {
 		packet->cmd = dir ? TWPC_CMD_MOTOR_B : TWPC_CMD_MOTOR_A;
 	} else if ( c == 's' ) {
 		int uid = hex_to_int(&msg[1], 2);
-		int s = hex_to_int(&msg[3], 2);
+		int s_id = hex_to_int(&msg[3], 2);
+		int s = msg[5] == '1';
 		packet->uid = uid;
-		packet->arg = s;
-		packet->cmd = TWPC_CMD_STATUS;
+		packet->arg = s_id;
+		packet->cmd = s ? TWPC_CMD_SW_FORK : TWPC_CMD_SW_STRAIGHT;
 	} else {
 		return -1;
 	}

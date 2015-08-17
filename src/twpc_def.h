@@ -18,11 +18,13 @@ typedef union {
 	} __attribute__((packed));
 } __attribute__((packed)) twpc_packet_t;
 
-#define TWPC_CMD_LIGHT_ON	0x01
-#define TWPC_CMD_LIGHT_OFF	0x02
-#define TWPC_CMD_MOTOR_A	0x03
-#define TWPC_CMD_MOTOR_B	0x04
-#define TWPC_CMD_STATUS		0x05
-#define TWPC_CMD_NAME		0x06
+#define TWPC_CMD_LIGHT_ON		0x01
+#define TWPC_CMD_LIGHT_OFF		0x02
+#define TWPC_CMD_MOTOR_A		0x03
+#define TWPC_CMD_MOTOR_B		0x04
+#define TWPC_CMD_STATUS			0x05
+#define TWPC_CMD_NAME			0x06
+#define TWPC_CMD_SW_STRAIGHT	0x07
+#define TWPC_CMD_SW_FORK		0x08
 
 #endif

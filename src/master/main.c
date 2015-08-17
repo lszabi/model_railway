@@ -34,7 +34,7 @@ Code for master station
 #define TWPC_DATA_DDR DDRB
 #define TWPC_DATA_PIN PINB
 
-#define TWPC_FAULT_THRESHOLD 10
+#define TWPC_FAULT_THRESHOLD 25
 
 #define ONEWIRE_PINS_N 1
 
@@ -301,30 +301,35 @@ int main(void) {
 	serial_init(57600);
 	led_blink();
 	twpc_packet_t last_packet;
+	DDRD |= _BV(7); // work this out later
+	DDRB |= _BV(0);
+	PORTD |= _BV(7);
+	PORTB &= ~_BV(0);
 	sei();
 	while ( 1 ) {
 		// Receive data from uart
 		if ( serial_available() >= sizeof(twpc_packet_t) ) {
 			serial_gets((char *)&last_packet, sizeof(twpc_packet_t));
 			if ( last_packet.checksum == TWPC_CHECKSUM(last_packet) ) {
-				int ok = 0;
-				//for ( int i = 0; i < 5; i++ ) {
+				if ( last_packet.uid == 0 ) {
+					char msg[16];
+					write_int(msg, last_packet.data_raw);
+					serial_puts(msg);
+					if ( last_packet.cmd == TWPC_CMD_SW_STRAIGHT ) {
+						PORTD |= _BV(7);
+						PORTB &= ~_BV(0);
+					} else if ( last_packet.cmd == TWPC_CMD_SW_FORK ) {
+						PORTD &= ~_BV(7);
+						PORTB |= _BV(0);
+					}
+				} else {
 					com_send(&last_packet);
 					com_recv();
-					/*if ( twpc_data_recv.checksum == TWPC_CHECKSUM(twpc_data_recv) && twpc_data_recv.cmd == TWPC_CMD_ACK ) {
-						serial_puts("ok");
-						serial_put(write_nibble(i));
-						ok = 1;
-						break;
-					}*/
 					char msg[16];
 					write_int(msg, twpc_data_recv.data_raw);
 					serial_puts(msg);
 					twpc_data_recv.data_raw = 0;
-				/*}
-				if ( !ok ) {
-					serial_puts("re");
-				}*/
+				}
 			} else {
 				serial_puts("re");
 				serial_flush_rx();
